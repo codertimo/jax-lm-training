@@ -5,6 +5,3 @@ flake8
 
 # for safe code :)
 pytest
-pytest-cov
-codecov
-coverage

@@ -1,50 +1,16 @@
-# REPO-README
+# JAX Language Model Training
 
-Template for my python projects
+> Currently this repo is under construction :) 
 
-## Template Replace Check-List
+## todos
 
-- [ ] Make your own package name 👋
-- [ ] Replace `package/` to new package name 🎉
-- [ ] Replace command in `.github/workflows/main.yml` with new package name 🔨
-- [ ] Replace command in `Makefile` with new package name
-- [ ] Replace name, description, author etc in `setup.py` with new package setting 🏄‍♂️
-- [ ] Replace author, version in `package/__init__.py` to new package name
-- [ ] Setting codecov (https://docs.codecov.io/docs/quick-start) to your repo
-- [ ] Make REAL runnable code 👨‍💻
-- [ ] Make REAL test code 👩🏻‍💻
-- [ ] Remove this README and make your own story! 👍
-
-## Run Scripts
-
-All runnable python scripts should be located in `scripts/` folder
-
-And you can run the scripts through under command
-
-```shell
-python -m scripts.run_sample
-```
-
-## Run Linting
-
-This project use three Linter: `black`, `isort`, `flake8`
-
-```
-# use linter to fix code format
-make style
-
-# check lint error
-make quality
-```
-
-## Run Test
-
-All runnable test codes should be located in `tests/` folder
-
-```shell
-pytest
-```
-
-## Author
-
-by @codertimo
+- [ ] writing corpus tokenizing and featurizing code with Apache Beam
+- [ ] writing training code with single GPU
+- [ ] writing evaluation code with single GPU
+- [ ] writing metric tracking code with weight&bias
+- [ ] train LM with single GPU and debug!
+- [ ] writing parallelism code for multi-GPUs support.
+- [ ] train LM with multi-GPUs and debug!
+- [ ] training in TPU and TPU-Pod
+- [ ] result comparison GPU, GPUs, TPU, TPU-Pod
+- [ ] writing similar code with pytorch and compare the training performance
