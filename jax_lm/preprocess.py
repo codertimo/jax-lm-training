@@ -13,6 +13,7 @@ parser.add_argument("--tokenizer-model", type=str, default="gpt2", help="")
 parser.add_argument("--min-sequence-length", type=int, default=128, help="")
 parser.add_argument("--max-sequence-length", type=int, default=256, help="")
 parser.add_argument("--num-special-token-reserved", type=int, default=2, help="")
+parser.add_argument("--ignore-label", type=int, default=-100, help="")
 parser.add_argument("--stride", type=int, default=128, help="")
 parser.add_argument("--dataset-name", type=str, default="wikitext", help="")
 parser.add_argument("--dataset-sub-name", type=str, default="wikitext-103-v1", help="")
@@ -85,21 +86,31 @@ class PaddingAndPackagingDoFN(beam.DoFn):
         yield {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
 
 
-def main(args: argparse.Namespace):
+def main(args: argparse.Namespace, pipeline_options: argparse.Namespace):
     dataset = load_dataset(
         args.dataset_name,
         args.dataset_sub_name,
         split=args.dataset_split_type,
     )
     dataset = list(dataset["text"])
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_model, fast=True)
 
     # TODO: support Google Dataflow for blazing fast processing
-    with beam.Pipeline(options=PipelineOptions()) as pipeline:
+    pipeline_options = PipelineOptions(pipeline_args)
+    with beam.Pipeline(options=pipeline_options) as pipeline:
         split_chunk_do_fn = SplitingChunksDoFN(
             min_sequence_length=args.min_sequence_length,
             max_sequence_length=args.max_sequence_length,
             num_special_token_reserved=args.num_special_token_reserved,
             stride=args.stride,
+        )
+
+        padding_and_packaging_do_fn = PaddingAndPackagingDoFN(
+            sequence_length=args.max_sequence_length,
+            bos_token_id=tokenizer.bos_token,
+            eos_token_id=tokenizer.eos_token,
+            pad_token_id=tokenizer.pad_token,
+            ignore_label=args.ignore_label,
         )
 
         write_fn = beam.io.WriteToParquet(
@@ -119,10 +130,11 @@ def main(args: argparse.Namespace):
             | "Create PCollection from dataset" >> beam.Create(dataset)
             | "Tokenize text" >> beam.ParDo(TokenizingDoFn(args.tokenizer_model))
             | "Split sequence into chunks" >> beam.ParDo(split_chunk_do_fn)
-            | "Add padding and make model inputs" >> beam.ParDo(PaddingAndPackagingDoFN())
+            | "Add padding and make model inputs" >> beam.ParDo(padding_and_packaging_do_fn)
             | "Write to Parquet format" >> write_fn
         )
 
 
 if __name__ == "__main__":
-    main(parser.parse_args())
+    known_args, pipeline_args = parser.parse_known_args()
+    main(known_args, pipeline_args)

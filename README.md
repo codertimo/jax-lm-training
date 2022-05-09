@@ -41,15 +41,18 @@ The detail of procedures are described as follow.
 
 ```shell
 python -m jax_lm.preprocess \
-    --tokenizer-model "gpt2" \ # huggingface gpt2 fast tokenizer
-    --min-sequence-length 128 \ 
+    --tokenizer-model "gpt2" \
+    --min-sequence-length 128 \
     --max-sequence-length 256 \
-    --num-special-token-reserved 2 \ # BOS, EOS
+    --num-special-token-reserved 2 \
+    --ignore-label -100 \
     --stride 128 \
-    --dataset-name "wikitext" \ 
-    --dataset-sub-name "wikitext-103-v1" \ 
-    --dataset-split-type "train" \ 
-    --output-path "dataset/wikitext.train"
+    --dataset-name "wikitext" \
+    --dataset-sub-name "wikitext-103-v1" \
+    --dataset-split-type "train" \
+    --output-path "dataset/wikitext.train" \
+    --direct_running_mode "multi_processing" \
+    --direct_num_workers 0
 ```
 
 ```python
