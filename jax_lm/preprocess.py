@@ -29,6 +29,8 @@ class TokenizingDoFn(beam.DoFn):
         self.tokenizer_model = tokenizer_model
 
     def setup(self):
+        from transformers import AutoTokenizer
+
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_model, fast=True)
 
     def process(self, text: str):
@@ -107,9 +109,9 @@ def main(args: argparse.Namespace, pipeline_options: argparse.Namespace):
 
         padding_and_packaging_do_fn = PaddingAndPackagingDoFN(
             sequence_length=args.max_sequence_length,
-            bos_token_id=tokenizer.bos_token,
-            eos_token_id=tokenizer.eos_token,
-            pad_token_id=tokenizer.pad_token,
+            bos_token_id=tokenizer.convert_tokens_to_ids(tokenizer.bos_token),
+            eos_token_id=tokenizer.convert_tokens_to_ids(tokenizer.eos_token),
+            pad_token_id=0,
             ignore_label=args.ignore_label,
         )
 
