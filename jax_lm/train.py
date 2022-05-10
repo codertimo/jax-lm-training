@@ -1,6 +1,6 @@
 import argparse
 import time
-from typing import Any, Dict, List
+from datetime import timedelta
 
 import jax
 import jax.numpy as jnp
@@ -9,52 +9,35 @@ import torch
 from datasets import Dataset
 from flax.jax_utils import replicate, unreplicate
 from flax.training import checkpoints, train_state
-from flax.training.common_utils import get_metrics, onehot, shard
-from flax.traverse_util import flatten_dict, unflatten_dict
+from flax.training.common_utils import get_metrics, onehot
 from transformers.models.gpt2.modeling_flax_gpt2 import FlaxGPT2LMHeadModel, GPT2Config
 
 import wandb
+from jax_lm.train_utils.utils import batch_collate_fn, decay_mask_fn, get_train_step_logging_info
 
 # fmt: off
 parser = argparse.ArgumentParser()
-parser.add_argument("--model-config-path", type=str, default="resource/distil_gpt2_config.json")
-parser.add_argument("--train-dataset-paths", type=str, default="dataset/wikitext.train**")
-parser.add_argument("--eval-dataset-paths", type=str, default="dataset/wikitext.test**")
-parser.add_argument("--batch-size", type=int, default=16)
-parser.add_argument("--random-seed", type=int, default=0)
-parser.add_argument("--max-sequence-length", type=int, default=256)
-parser.add_argument("--num-epochs", type=int, default=5)
-parser.add_argument("--learning-rate", type=float, default=3e-5)
-parser.add_argument("--weight-decay-rate", type=float, default=0.01)
+parser.add_argument("--model-config-path", type=str, default="resource/distil_gpt2_config.json", help="GPT2 config json path")
+parser.add_argument("--train-dataset-paths", type=str, default="dataset/wikitext.train**", help="train datset paths (multiple paths)")
+parser.add_argument("--eval-dataset-paths", type=str, default="dataset/wikitext.test**", help="eval dataset paths (multiple paths)")
+parser.add_argument("--batch-size", type=int, default=16, help="train, eval batch size (batch size will be devided by device count)")
+parser.add_argument("--random-seed", type=int, default=0, help="random seed for RNG state")
+parser.add_argument("--max-sequence-length", type=int, default=256, help="sequence lenght of model input")
+parser.add_argument("--num-epochs", type=int, default=5, help="number of epochs")
+parser.add_argument("--learning-rate", type=float, default=3e-5, help="learning rate")
+parser.add_argument("--weight-decay-rate", type=float, default=0.01, help="weight deacy rate for lr scheduler")
 parser.add_argument("--adamw-beta1", type=float, default=0.9)
 parser.add_argument("--adamw-beta2", type=float, default=0.98)
 parser.add_argument("--adamw-eps", type=float, default=1e-8)
-parser.add_argument("--dtype", choices=["float32", "float16", "bfloat16"], default="float32")
-parser.add_argument("--wandb-username", default="codertimo")
-parser.add_argument("--wandb-project", default="jax-lm-training")
-parser.add_argument("--logging-frequency", type=int, default=100)
-parser.add_argument("--eval-frequency", type=int, default=5000)
-parser.add_argument("--save-frequency", type=int, default=5000)
-parser.add_argument("--model-save-dir", type=str, default="artifacts/")
-parser.add_argument("--restore-checkpoint-path", type=str)
+parser.add_argument("--dtype", choices=["float32", "float16", "bfloat16"], default="float32", help="model datatype")
+parser.add_argument("--wandb-username", default="codertimo", help="wandb username for logging")
+parser.add_argument("--wandb-project", default="jax-lm-training", help="wandb project name for logging")
+parser.add_argument("--logging-frequency", type=int, default=100, help="do logging every logging_frequency step")
+parser.add_argument("--eval-frequency", type=int, default=5000, help="do evalution every eval_frequency step")
+parser.add_argument("--save-frequency", type=int, default=5000, help="do saving checkpoint every save_frequencey step")
+parser.add_argument("--model-save-dir", type=str, default="artifacts/", help="checkpoint saving dir")
+parser.add_argument("--restore-checkpoint-path", type=str, help="if you want to restart from specific checkpoint, set this arg to checkpoint path")
 # fmt: on
-
-
-def batch_collate_fn(data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
-    batch_dict = {key: [] for key in data_list[0].keys()}
-    for data in data_list:
-        for key, value in data.items():
-            batch_dict[key].append(value)
-    return shard({key: jnp.array(value) for key, value in batch_dict.items()})
-
-
-def decay_mask_fn(params):
-    flat_params = flatten_dict(params)
-    flat_mask = {
-        path: (path[-1] != "bias" and path[-2:] not in [("ln_1", "scale"), ("ln_2", "scale"), ("ln_f", "scale")])
-        for path in flat_params
-    }
-    return unflatten_dict(flat_mask)
 
 
 def main(args: argparse.Namespace):
@@ -155,18 +138,20 @@ def main(args: argparse.Namespace):
                 train_metrics = get_metrics(train_metrics_stack)
                 train_metrics = unreplicate(train_metrics)
                 train_metrics = jax.tree_map(jnp.mean, train_metrics)
+
                 loss = train_metrics["loss"]
                 ppl = jnp.exp(loss)
 
                 duration = int(time.time() - last_timestamp)
-                eta = (num_train_steps - current_train_step) * duration // 50
+                eta_secs = (num_train_steps - current_train_step) * duration // 50
+                eta = timedelta(seconds=eta_secs)
+
                 print(
-                    f"[TRAIN] epoch: {epoch} step: {current_train_step}/{num_train_steps} loss: {loss:.4f} ppl: {ppl:.2f} "
-                    f"ETA {eta // 3600:02}:{ (eta % 3600) // 60:02}:{eta % 60:02}"
+                    f"[TRAIN] epoch: {epoch} step: {current_train_step}/{num_train_steps} "
+                    f"loss: {loss:.4f} ppl: {ppl:.2f} ETA {eta}"
                 )
                 wandb.log({"loss": loss, "ppl": ppl, "epoch": epoch}, step=current_train_step)
-                train_metrics_stack.clear()
-                last_timestamp = time.time()
+                last_timestamp, train_metrics_stack = time.time(), []
 
             is_end_of_epoch = i + 1 == len(train_dataloader)
             if current_train_step > 0 and (current_train_step % args.eval_frequency == 0 or is_end_of_epoch):
