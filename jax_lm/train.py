@@ -19,7 +19,7 @@ import wandb
 parser = argparse.ArgumentParser()
 parser.add_argument("--model-config-path", type=str, default="resource/distil_gpt2_config.json")
 parser.add_argument("--train-dataset-paths", type=str, default="dataset/wikitext.train**")
-parser.add_argument("--test-dataset-paths", type=str, default="dataset/wikitext.test**")
+parser.add_argument("--eval-dataset-paths", type=str, default="dataset/wikitext.test**")
 parser.add_argument("--batch-size", type=int, default=16)
 parser.add_argument("--random-seed", type=int, default=0)
 parser.add_argument("--max-sequence-length", type=int, default=256)
@@ -69,9 +69,9 @@ def main(args: argparse.Namespace):
         collate_fn=batch_collate_fn,
     )
 
-    test_dataset = Dataset.from_parquet(args.test_dataset_paths)
-    test_dataloader = torch.utils.data.DataLoader(
-        test_dataset,
+    eval_dataset = Dataset.from_parquet(args.eval_dataset_paths)
+    eval_dataloader = torch.utils.data.DataLoader(
+        eval_dataset,
         batch_size=args.batch_size,
         drop_last=True,
         collate_fn=batch_collate_fn,
@@ -127,12 +127,12 @@ def main(args: argparse.Namespace):
         labels = batch.pop("labels")
         pred_logits = model(**batch, params=state.params, train=False)[0]
         loss = optax.softmax_cross_entropy(pred_logits, onehot(labels, pred_logits.shape[-1]))
-        metrics = {"loss": loss.mean()}
+        metrics = {"eval_loss": loss.mean()}
         metrics = jax.lax.pmean(metrics, axis_name="batch")
         return metrics
 
     parallel_train_step = jax.pmap(train_step, "batch")
-    parallel_test_step = jax.pmap(eval_step, "batch")
+    parallel_eval_step = jax.pmap(eval_step, "batch")
     state = replicate(state)
     rng = jax.random.PRNGKey(args.random_seed)
 
@@ -170,14 +170,13 @@ def main(args: argparse.Namespace):
 
             is_end_of_epoch = i + 1 == len(train_dataloader)
             if current_train_step > 0 and (current_train_step % args.eval_frequency == 0 or is_end_of_epoch):
-                eval_metrics = [parallel_test_step(state, batch) for batch in test_dataloader]
+                eval_metrics = [parallel_eval_step(state, batch) for batch in eval_dataloader]
                 eval_metrics = get_metrics(eval_metrics)
                 eval_metrics = jax.tree_map(jnp.mean, unreplicate(eval_metrics))
-                eval_metrics["ppl"] = jnp.exp(eval_metrics["loss"])
-                eval_metrics["epoch"] = epoch
+                eval_metrics["eval_ppl"] = jnp.exp(eval_metrics["eval_loss"])
                 print(
                     f"[EVAL] epoch: {epoch} step: {current_train_step}/{num_train_steps} "
-                    f"loss: {eval_metrics['loss']:.4f} ppl: {eval_metrics['ppl']:.2f}"
+                    f"loss: {eval_metrics['eval_loss']:.4f} ppl: {eval_metrics['eval_ppl']:.2f}"
                 )
                 wandb.log(eval_metrics, step=current_train_step)
 
