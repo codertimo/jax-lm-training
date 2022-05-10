@@ -1,21 +1,20 @@
 import argparse
+import os
 import time
 from datetime import timedelta
 from typing import Any, Dict, List
-import os
 
 import jax
 import jax.numpy as jnp
 import optax
 import torch
+import wandb
 from datasets import Dataset
 from flax.jax_utils import replicate, unreplicate
 from flax.training import checkpoints, train_state
 from flax.training.common_utils import get_metrics, onehot, shard
 from flax.traverse_util import flatten_dict, unflatten_dict
 from transformers.models.gpt2.modeling_flax_gpt2 import FlaxGPT2LMHeadModel, GPT2Config
-
-import wandb
 
 # fmt: off
 parser = argparse.ArgumentParser()
@@ -62,7 +61,7 @@ def decay_mask_fn(params):
 
 def main(args: argparse.Namespace):
     os.makedirs(args.wandb_run_dir, exist_ok=True)
-    wandb.init(project=args.wandb_project, entity=args.wandb_username, dir=args.wandb_run_dir)
+    wandb.init(project=args.wandb_project, entity=args.wandb_username, dir=args.wandb_run_dir, save_code=True)
     wandb.config = dict(vars(args))
 
     train_dataset = Dataset.from_parquet(args.train_dataset_paths)
