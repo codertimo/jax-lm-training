@@ -2,6 +2,7 @@ import argparse
 import time
 from datetime import timedelta
 from typing import Any, Dict, List
+import os
 
 import jax
 import jax.numpy as jnp
@@ -15,11 +16,10 @@ from flax.traverse_util import flatten_dict, unflatten_dict
 from transformers.models.gpt2.modeling_flax_gpt2 import FlaxGPT2LMHeadModel, GPT2Config
 
 import wandb
-from jax_lm.train_utils.utils import batch_collate_fn, decay_mask_fn
 
 # fmt: off
 parser = argparse.ArgumentParser()
-parser.add_argument("--model-config-path", type=str, default="resource/distil_gpt2_config.json", help="GPT2 config json path")
+parser.add_argument("--model-config-name", type=str, default="distilgpt2", help="GPT2 config name (huggingface model hub)")
 parser.add_argument("--train-dataset-paths", type=str, default="dataset/wikitext.train**", help="train datset paths (multiple paths)")
 parser.add_argument("--eval-dataset-paths", type=str, default="dataset/wikitext.test**", help="eval dataset paths (multiple paths)")
 parser.add_argument("--batch-size", type=int, default=16, help="train, eval batch size (batch size will be devided by device count)")
@@ -34,6 +34,7 @@ parser.add_argument("--adamw-eps", type=float, default=1e-8)
 parser.add_argument("--dtype", choices=["float32", "float16", "bfloat16"], default="float32", help="model datatype")
 parser.add_argument("--wandb-username", default="codertimo", help="wandb username for logging")
 parser.add_argument("--wandb-project", default="jax-lm-training", help="wandb project name for logging")
+parser.add_argument("--wandb-run-dir", default=".wandb", help="wandb run dir")
 parser.add_argument("--logging-frequency", type=int, default=100, help="do logging every logging_frequency step")
 parser.add_argument("--eval-frequency", type=int, default=5000, help="do evalution every eval_frequency step")
 parser.add_argument("--save-frequency", type=int, default=5000, help="do saving checkpoint every save_frequencey step")
@@ -60,7 +61,8 @@ def decay_mask_fn(params):
 
 
 def main(args: argparse.Namespace):
-    wandb.init(project=args.wandb_project, entity=args.wandb_username)
+    os.makedirs(args.wandb_run_dir, exist_ok=True)
+    wandb.init(project=args.wandb_project, entity=args.wandb_username, dir=args.wandb_run_dir)
     wandb.config = dict(vars(args))
 
     train_dataset = Dataset.from_parquet(args.train_dataset_paths)
@@ -79,7 +81,7 @@ def main(args: argparse.Namespace):
         collate_fn=batch_collate_fn,
     )
 
-    model_config = GPT2Config.from_json_file(args.model_config_path)
+    model_config = GPT2Config.from_pretrained(args.model_config_name)
     model = FlaxGPT2LMHeadModel(
         model_config,
         input_shape=(args.batch_size, args.max_sequence_length),
