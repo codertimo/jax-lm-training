@@ -1,6 +1,7 @@
 import argparse
 import time
 from datetime import timedelta
+from typing import Any, Dict, List
 
 import jax
 import jax.numpy as jnp
@@ -9,11 +10,12 @@ import torch
 from datasets import Dataset
 from flax.jax_utils import replicate, unreplicate
 from flax.training import checkpoints, train_state
-from flax.training.common_utils import get_metrics, onehot
+from flax.training.common_utils import get_metrics, onehot, shard
+from flax.traverse_util import flatten_dict, unflatten_dict
 from transformers.models.gpt2.modeling_flax_gpt2 import FlaxGPT2LMHeadModel, GPT2Config
 
 import wandb
-from jax_lm.train_utils.utils import batch_collate_fn, decay_mask_fn, get_train_step_logging_info
+from jax_lm.train_utils.utils import batch_collate_fn, decay_mask_fn
 
 # fmt: off
 parser = argparse.ArgumentParser()
@@ -38,6 +40,23 @@ parser.add_argument("--save-frequency", type=int, default=5000, help="do saving 
 parser.add_argument("--model-save-dir", type=str, default="artifacts/", help="checkpoint saving dir")
 parser.add_argument("--restore-checkpoint-path", type=str, help="if you want to restart from specific checkpoint, set this arg to checkpoint path")
 # fmt: on
+
+
+def batch_collate_fn(data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+    batch_dict = {key: [] for key in data_list[0].keys()}
+    for data in data_list:
+        for key, value in data.items():
+            batch_dict[key].append(value)
+    return shard({key: jnp.array(value) for key, value in batch_dict.items()})
+
+
+def decay_mask_fn(params):
+    flat_params = flatten_dict(params)
+    flat_mask = {
+        path: (path[-1] != "bias" and path[-2:] not in [("ln_1", "scale"), ("ln_2", "scale"), ("ln_f", "scale")])
+        for path in flat_params
+    }
+    return unflatten_dict(flat_mask)
 
 
 def main(args: argparse.Namespace):
